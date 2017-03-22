@@ -1,2 +1,2 @@
 # Learing
-arithmetic
+常用算法介绍
