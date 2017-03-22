@@ -1,0 +1,124 @@
+HMI framwork
+ Url: http://spaces.telenav.com:8080/pages/viewpage.action?spaceKey=auto&title=Development+Guidance
+ 
+FRAMEWORK
+ GUI and utilities: Qt
+ Render: OpenGL
+ Widgets: customized Qt widget, with 9-patch support
+ Layout: XML
+ Flow: MVC + command + state machine
+ Core functionality: AutoSDK/NavKit
+ 
+Development View
+ Control
+  ControllerManager -> Controller -> View/Model
+ Data
+  Service -> Model -> View
+ Command
+  View -> Controller -> ControllerManager/ServiceManager
+ StateMachine is used in Controller and ControllerManager to reduce complexity
+ 2 Stage StateMachine
+-1st stage is major flow in ControllerManager, e.g.
+  Init -> Map -> Poi -> Navigation
+-2nd stage is minor flow in every Controller, e.g. in PoiController
+  PoiStateCategory -> PoiStateSearchResult -> PoiStateDetail
+ Commonly, one State of 2nd stage handles one page (or some related pages)
+ 
+Process View
+ Control flow
+  - View -> Controller
+  - View -> Controller -> ControllerManager
+  - View -> Controller -> Service
+ Via Command and CommandImpl
+  - Command is name + arguments, e.g.
+  - CommandImpl interact with Service or Controller/Model to accomplish a task for Command
+ Data flow
+  - Service -> Model -> View
+ Via direct function call from View, or via listener pattern from Service to Model to View
+  - For Model, Service is mostly read-only (MapService is an exception, since large portion of it in fact is related to UI)
+  - For View, Service is not visible, including SDK data structure
+  
+GUIDANCE
+ View
+  Global layout is specified in “layout.xml”
+  Most views could be done in “uiconfig.xml”
+  To support multiple region, “uiconfig_[RegionCode].xml” is added
+  Create a view
+    Normally, a View is composed of a View class and a Widget class. Widget is inherited from QWidget, which will show on screen. View       class is an adapter to adapt it to IView interface.
+  Inherit from BaseView
+  Specify UI and layout in “uiconfig.xml”
+  Call "Tn::Ui::UiFactory::createWidget()" to create Widget from ui config.
+  Additional config for the Widget (e.g., set label text).
+  Call "setUiWidget()" to put Widget to View.
+  Additional signal/slot connection from Widget to View.
+  onShow is guaranteed to be called after View is set to visible
+  onHide would be called after View is set to invisible in general. If View is destroyed before set to invisible, onHide might not be    called.
+  Call sendCommand to send a Command to Controller, and use a Qt slot to receive the response
+
+State
+Add state name to EntityName namespace of the module
+Inherit from ControllerState<T>
+Insert State to setupStateMachine of appropriate controller
+In other related State, override executeCommand, call FiniteStateMachine::transitionToState with the state name, to complete the flow
+onEnterState is guaranteed to be called when FSM enter this State
+onExitState is guaranteed to be called after FSM exit this State (for either transit to another state, or StateMachine is paused or stopped)
+excecuteCommand is called when a command send to the State
+– Return “NoError” to indicate State handles the command, and no further processing is needed
+“back” is automatically handled by Controller
+
+Controller
+In simplest situation, Controller derived from BaseController works as a factory, creating instance of Views, Models, and States
+onReset is called when the Controller is deactivated and FSM is reset to release all views and free memory
+Override parseCommand and executeCommand for more control
+
+Command
+TypeInstant
+• Instant UI command, mainly for UI event and flow control
+• Usually handled in State
+TypeService
+• Service command, mainly for asynchronous request and response
+• By default timeout after 30 sec
+• Need a CommandImpl in Service
+TypeCompositeUi
+• Composite UI command, usually composed of UI manipulation and/or service request/response
+• No timeout
+• Need a CommandImpl in Controller
+View send Command to Controller for UI request. Call sendCommand() method in BaseView to send a command to controller.
+The command will be first dispatched to current State in Controller. If current State does not handle it, it will be handled in controller.
+“back” and “close” command are by default handled in BaseController. “back” will cause the state machine go back to a previous state, and “close” will close the Controller. If this is not what you want, handle it explicitly in "executeCommand()" method in State or Controller, this will override the default handler.
+
+CommandImpl
+Service uses implementation of command to do request and handle response.
+View asks for data from Model, but when there is something new which Model cannot provide (e.g., user press a button to search new poi), View need to send Command to get the updated data.
+Service request from View is also sent by command. A service command will be parsed in ServiceCommandParser and a CommandImpl object will be attached.
+For view, it still send command by "sendCommand()" method, and optionally register a Qt slot for callback. The slot will be called when the request is finished.
+For controller, normally it needs to do nothing.
+If the service request does not exist, you need to implement it in Service class, and add a new CommandImpl class for it.
+Add interface in Service class to process the request.
+Inherit from ServiceCommandImpl
+Override parseCommand method to parse the request from command arguments.
+Override execute to access Service to process the request
+Override parseCommand in ServiceCommandParser to attach the CommandImpl to the right command with proper name
+
+Code Convention
+Mandatory
+ Put your name on the class you created. Add your name if you have done large modification on class created by others.
+Check for NULL pointer for every input parameter or member variable.
+No raw pointer pass across module, use shared pointer, or reference if object life cycle is clear.
+No throw and exception. Catch all exception if it comes from other lib.
+Use “QObject::tr” in code for literal text strings.
+Follow Qt's public interface. Use camelCase. Naming the function like “doSomething()”.
+Set tab = 4 spaces.
+Preferable
+Use const and reference when applicable.
+No raw pointer pass across module, use shared pointer or reference if object life cycle is clear.
+Avoid C style casts.
+First alphabet for member variable should be “m”. It helps to make code more readable, and avoid variable shadowing.
+If not specified, follow the style of the class you are modifying.
+Advice
+Don't repeat yourself.
+This is kind of mandatory. When you want to copy & paste, you probably need to refactor the code so you can move & paste.
+Program to interface. This encourages low coupling.
+When implementing, think whether the implement accomplish the definition of the interface.
+Don’t just write codes which only satisfy your current need. Other guys do not want to read (and then fix) the implementation every time when they use it.
+ 
